@@ -1,23 +1,123 @@
-﻿
-Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.11.35222.181
-MinimumVisualStudioVersion = 10.0.40219.1
-Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Machine Learning in Genomic Variations and Disease Risk Modeling", "Machine Learning in Genomic Variations and Disease Risk Modeling\Machine Learning in Genomic Variations and Disease Risk Modeling.pyproj", "{BBE3938C-EB0A-4611-9A1C-ACD0F65D1AB8}"
-EndProject
-Global
-	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Any CPU = Debug|Any CPU
-		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{BBE3938C-EB0A-4611-9A1C-ACD0F65D1AB8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{BBE3938C-EB0A-4611-9A1C-ACD0F65D1AB8}.Release|Any CPU.ActiveCfg = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {CFBDF8CB-DF87-4BFA-A30E-5E700F83DC0F}
-	EndGlobalSection
-EndGlobal
+﻿# Install necessary packages (uncomment if running for the first time)
+# !pip install numpy pandas scikit-learn tensorflow shap biopython matplotlib tkinter
+
+import os
+import numpy as np
+import pandas as pd
+from tkinter import Tk, filedialog, Label, Button
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import roc_auc_score
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+import shap
+import matplotlib.pyplot as plt
+
+# Create the main application window
+root = Tk()
+root.title("Genomic Variation Data Loader")
+root.geometry("400x200")
+
+# Create and place a label to show file selection status (before the function that updates it)
+label = Label(root, text="No file loaded", pady=20)
+label.pack()
+
+# Function to load and process the selected file
+def load_file():
+    # Open file dialog to select the CSV file
+    file_path = filedialog.askopenfilename(title="Select Genomic Data File", filetypes=[("CSV files", "*.csv")])
+    
+    if file_path:
+        # Display the file path on the UI by updating the label
+        label.config(text=f"File Loaded: {os.path.basename(file_path)}")
+
+        # Load the CSV file into a pandas DataFrame
+        data = pd.read_csv(file_path)
+        print("Data Preview:")
+        print(data.head())  # Print the first few rows to confirm it loaded correctly
+
+        # Separate features (gene variations) and target (disease status)
+        X = data.drop('Disease', axis=1)
+        y = data['Disease']
+
+        # Normalize the data
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        # Split into train and test sets
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+        # Define the machine learning model
+        model = Sequential([
+            Dense(256, input_shape=(X_train.shape[1],), activation='relu'),
+            Dropout(0.3),
+            Dense(128, activation='relu'),
+            Dropout(0.3),
+            Dense(64, activation='relu'),
+            Dense(1, activation='sigmoid')  # Binary classification output
+        ])
+
+        # Compile the model
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+        # Train the model
+        history = model.fit(X_train, y_train, validation_split=0.2, epochs=50, batch_size=32, verbose=1)
+
+        # Evaluate the model on the test set
+        test_loss, test_accuracy = model.evaluate(X_test, y_test)
+        print(f"Test Accuracy: {test_accuracy:.2f}")
+
+        # Predict on the test set and calculate AUC
+        predictions = model.predict(X_test)
+        auc = roc_auc_score(y_test, predictions)
+        print(f"Test AUC: {auc:.2f}")
+
+        # Convert predictions to binary (0 or 1) based on a threshold of 0.5
+        binary_predictions = [1 if p > 0.5 else 0 for p in predictions]
+
+        # Create a scatter plot to visualize the predictions for each sample
+        plt.figure(figsize=(10, 6))
+        colors = ['green' if pred == 0 else 'red' for pred in binary_predictions]
+        plt.scatter(range(len(binary_predictions)), binary_predictions, c=colors, marker='o')
+        plt.title("Disease Predictions (0 = Not Diseased, 1 = Diseased)")
+        plt.xlabel("Sample Index")
+        plt.ylabel("Prediction (0 or 1)")
+        plt.yticks([0, 1], ['Not Diseased', 'Diseased'])  # Custom y-axis labels
+        plt.grid(True)
+        plt.show()
+
+        # SHAP model interpretation to explain how gene variations contribute to disease
+        explainer = shap.KernelExplainer(model.predict, X_train)
+        shap_values = explainer.shap_values(X_test)
+
+        # Correction: Handle SHAP values list properly
+        if isinstance(shap_values, list):
+            shap.summary_plot(shap_values[0], X_test)  # Use the first element if it's a list
+        else:
+            shap.summary_plot(shap_values, X_test)
+
+        # Plot training & validation accuracy
+        plt.plot(history.history['accuracy'])
+        plt.plot(history.history['val_accuracy'])
+        plt.title('Model Accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.legend(['Train', 'Validation'], loc='upper left')
+        plt.show()
+
+        # Plot training & validation loss
+        plt.plot(history.history['loss'])
+        plt.plot(history.history['val_loss'])
+        plt.title('Model Loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.legend(['Train', 'Validation'], loc='upper left')
+        plt.show()
+
+# Create a button that triggers the file loading
+load_button = Button(root, text="Load Genomic Data", command=load_file, padx=20, pady=10)
+load_button.pack()
+
+# Start the Tkinter event loop (keeps the UI running)
+root.mainloop()
